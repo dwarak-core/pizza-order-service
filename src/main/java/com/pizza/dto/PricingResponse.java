@@ -9,5 +9,6 @@ public record PricingResponse(
     BigDecimal taxableAmount,
     BigDecimal tax,
     BigDecimal tip,
-    BigDecimal total
+    BigDecimal total,
+    String promoError
 ) {}

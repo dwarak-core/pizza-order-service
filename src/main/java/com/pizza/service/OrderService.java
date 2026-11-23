@@ -8,6 +8,9 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -31,15 +34,22 @@ public class OrderService {
 
     @Transactional
     public OrderResponse createOrder(CreateOrderRequest request) {
-        // Idempotency: return existing order if key matches
+        String requestHash = hashRequest(request);
+
+        // Idempotency: return existing order if key and payload match; reject mismatched payload
         if (request.idempotencyKey() != null && !request.idempotencyKey().isBlank()) {
             Optional<PizzaOrder> existing = orderRepository.findByIdempotencyKey(request.idempotencyKey());
             if (existing.isPresent()) {
+                if (!Objects.equals(existing.get().getIdempotencyHash(), requestHash)) {
+                    throw new IdempotencyConflictException(
+                            "Idempotency key already used with a different request payload");
+                }
                 return toOrderResponse(existing.get());
             }
         }
 
         PizzaOrder order = new PizzaOrder(request.idempotencyKey());
+        order.setIdempotencyHash(requestHash);
         order.setPromoCode(request.promoCode());
         order.setTipMode(request.tipMode());
         order.setTipValue(request.tipValue());
@@ -115,10 +125,38 @@ public class OrderService {
                 .collect(Collectors.toList());
         PricingResult result = pricingService.calculatePricing(
                 items, request.promoCode(), request.tipMode(), request.tipValue());
-        return toPricingResponse(result);
+        String promoError = pricingService.validatePromoCode(request.promoCode(), result.subtotal())
+                .orElse(null);
+        return toPricingResponse(result, promoError);
     }
 
     // ---- helpers ----
+
+    private String hashRequest(CreateOrderRequest request) {
+        StringBuilder canonical = new StringBuilder();
+        for (LineItemRequest item : request.lineItems()) {
+            String toppings = item.toppingIds() == null ? "" :
+                    item.toppingIds().stream().sorted().map(String::valueOf)
+                            .collect(Collectors.joining(","));
+            canonical.append(item.sizeId()).append(':')
+                    .append(item.quantity()).append(':')
+                    .append(toppings).append(';');
+        }
+        canonical.append('|')
+                .append(request.promoCode() == null ? "" : request.promoCode().trim().toUpperCase())
+                .append('|')
+                .append(request.tipMode() == null ? "" : request.tipMode().name())
+                .append('|')
+                .append(request.tipValue() == null ? "" : request.tipValue().stripTrailingZeros().toPlainString());
+
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            byte[] hash = digest.digest(canonical.toString().getBytes(StandardCharsets.UTF_8));
+            return HexFormat.of().formatHex(hash);
+        } catch (NoSuchAlgorithmException e) {
+            throw new IllegalStateException("SHA-256 unavailable", e);
+        }
+    }
 
     private LineItem buildLineItem(LineItemRequest req) {
         PizzaSize size = sizeRepository.findById(req.sizeId())
@@ -179,7 +217,7 @@ public class OrderService {
                 order.getId(),
                 order.getStatus().name(),
                 itemResponses,
-                toPricingResponse(pricing),
+                toPricingResponse(pricing, null),
                 order.getPromoCode(),
                 order.getTipMode() != null ? order.getTipMode().name() : null,
                 order.getTipValue(),
@@ -188,9 +226,9 @@ public class OrderService {
         );
     }
 
-    private PricingResponse toPricingResponse(PricingResult r) {
+    private PricingResponse toPricingResponse(PricingResult r, String promoError) {
         return new PricingResponse(
                 r.subtotal(), r.discount(), r.appliedPromoCode(),
-                r.taxableAmount(), r.tax(), r.tip(), r.total());
+                r.taxableAmount(), r.tax(), r.tip(), r.total(), promoError);
     }
 }

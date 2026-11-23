@@ -101,7 +101,7 @@ The kitchen is simulated with the `PATCH /api/admin/orders/{id}/advance` endpoin
 - **Promo codes** are case-insensitive. An unknown or inapplicable code is **rejected with a 400** when the order is submitted or updated. In the live preview (`/calculate`) it is just not applied.
 - **Negative tips** are treated as zero by the pricing engine (they should be rejected with a 400; see Known gaps). Empty orders cannot be submitted (at least one line item required).
 - **Cancel** is a status (`CANCELLED`), not a delete, so a customer can still check a cancelled order.
-- **Idempotency:** the client generates a UUID `idempotencyKey` per submission. A retry with the same key returns the original order instead of creating a duplicate. A different payload with the same key also returns the original order (no conflict detection).
+- **Idempotency:** the client generates a UUID `idempotencyKey` per submission. A retry with the same key and payload returns the original order instead of creating a duplicate. Reusing the same key with a different payload is rejected with `409 Conflict`.
 
 ## Design Write-Up
 
@@ -122,14 +122,13 @@ The kitchen is simulated with the `PATCH /api/admin/orders/{id}/advance` endpoin
 Run with `./gradlew test`.
 
 - `PricingServiceTest` (unit): base prices, basic/premium topping percentages, quantity scaling, multi-line orders, both promos incl. the SAVE5 threshold, invalid and case-insensitive codes, dollar and percentage tips, every amount has exactly 2 decimals, and **total == taxable + tax + tip**. Pricing is the highest-weighted area, so it has the densest tests.
-- `OrderControllerIntegrationTest` (API): create/get round-trip, **idempotent retry returns the same order**, full lifecycle including advancing past DELIVERED (409), cancel allowed only while NOT_STARTED, update rejected after STARTED, invalid promo → 400, menu, pricing preview.
+- `OrderControllerIntegrationTest` (API): create/get round-trip, **idempotent retry returns the same order**, **idempotency key reused with a different payload returns 409 Conflict**, **concurrent duplicate idempotent creates return the same order ID**, full lifecycle including advancing past DELIVERED (409), cancel allowed only while NOT_STARTED, **concurrent cancel vs. advance race (single race and 20-iteration contention stress test — exactly one wins, other gets 409)**, update rejected after STARTED, invalid promo → 400 (and `promoError` in `/calculate`), menu, pricing preview.
 
-**Not covered yet:** a true concurrent cancel/advance test (two threads), idempotency key reused with a different payload, and frontend tests.
+**Not covered yet:** frontend tests.
 
 ## Known gaps / next steps
 
-- Idempotency doesn't detect a reused key with a different payload (should return 409/422).
-- Concurrency is protected by optimistic locking but not stress-tested. SQLite with a single connection also serializes writes.
+- SQLite with a single connection (`maximum-pool-size: 1`) serializes writes; moving to PostgreSQL or another multi-writer DB would rely on the JPA `@Version` optimistic lock for concurrent writes.
 - No auth on the admin endpoint (out of scope by requirements).
 - The UI submits a new order instead of editing a submitted one (the API supports `PUT`).
 

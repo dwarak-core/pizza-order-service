@@ -16,11 +16,18 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 
 import java.math.BigDecimal;
+import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 
 import static org.hamcrest.Matchers.*;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
@@ -313,7 +320,188 @@ class OrderControllerIntegrationTest {
                 .andExpect(jsonPath("$.subtotal").isNumber())
                 .andExpect(jsonPath("$.discount").isNumber())
                 .andExpect(jsonPath("$.appliedPromoCode").value("ILOVEPIZZA"))
+                .andExpect(jsonPath("$.promoError").doesNotExist())
                 .andExpect(jsonPath("$.total").isNumber());
+    }
+
+    @Test
+    @DisplayName("Calculate pricing returns promoError for invalid promo code")
+    void calculatePricingInvalidPromo() throws Exception {
+        CreateOrderRequest req = new CreateOrderRequest(
+                null,
+                List.of(new LineItemRequest(getLargeId(), 1, Set.of())),
+                "BADCODE", null, null
+        );
+
+        mockMvc.perform(post("/api/orders/calculate")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(json(req)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.appliedPromoCode").doesNotExist())
+                .andExpect(jsonPath("$.discount").value(0))
+                .andExpect(jsonPath("$.promoError").value("Invalid promo code: BADCODE"));
+    }
+
+    @Test
+    @DisplayName("Concurrent cancel and advance: exactly one wins, other gets 409")
+    void concurrentCancelAndAdvance() throws Exception {
+        MvcResult created = mockMvc.perform(post("/api/orders")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(json(simpleOrder())))
+                .andExpect(status().isCreated())
+                .andReturn();
+
+        Long orderId = objectMapper.readTree(created.getResponse().getContentAsString())
+                .get("id").asLong();
+
+        ExecutorService pool = Executors.newFixedThreadPool(2);
+        CountDownLatch ready = new CountDownLatch(2);
+        CountDownLatch start = new CountDownLatch(1);
+
+        Future<Integer> cancelStatus = pool.submit(() -> {
+            ready.countDown();
+            start.await();
+            return mockMvc.perform(delete("/api/orders/" + orderId))
+                    .andReturn().getResponse().getStatus();
+        });
+
+        Future<Integer> advanceStatus = pool.submit(() -> {
+            ready.countDown();
+            start.await();
+            return mockMvc.perform(patch("/api/admin/orders/" + orderId + "/advance"))
+                    .andReturn().getResponse().getStatus();
+        });
+
+        ready.await();
+        start.countDown();
+
+        int s1 = cancelStatus.get();
+        int s2 = advanceStatus.get();
+        pool.shutdown();
+
+        boolean cancelWon = (s1 == 204 && s2 == 409);
+        boolean advanceWon = (s1 == 409 && s2 == 200);
+        assertTrue(cancelWon || advanceWon,
+                "Expected one winner and one 409, got cancel=" + s1 + ", advance=" + s2);
+
+        String expectedFinal = cancelWon ? "CANCELLED" : "STARTED";
+        mockMvc.perform(get("/api/orders/" + orderId + "/status"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value(expectedFinal));
+    }
+
+    @Test
+    @DisplayName("Reusing idempotency key with different payload returns 409 Conflict")
+    void idempotencyKeyDifferentPayloadConflict() throws Exception {
+        String key = "conflict-key-" + UUID.randomUUID();
+
+        CreateOrderRequest firstReq = new CreateOrderRequest(
+                key,
+                List.of(new LineItemRequest(getLargeId(), 1, Set.of())),
+                null, null, null
+        );
+        CreateOrderRequest differentReq = new CreateOrderRequest(
+                key,
+                List.of(new LineItemRequest(getSmallId(), 2, Set.of(getPepperoniId()))),
+                null, null, null
+        );
+
+        mockMvc.perform(post("/api/orders")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(json(firstReq)))
+                .andExpect(status().isCreated());
+
+        mockMvc.perform(post("/api/orders")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(json(differentReq)))
+                .andExpect(status().isConflict());
+    }
+
+    @Test
+    @DisplayName("Concurrent duplicate idempotent creates all return the same order ID")
+    void concurrentDuplicateIdempotentCreates() throws Exception {
+        String key = "concurrent-create-" + UUID.randomUUID();
+        CreateOrderRequest req = new CreateOrderRequest(
+                key,
+                List.of(new LineItemRequest(getLargeId(), 1, Set.of(getPepperoniId()))),
+                null, null, null
+        );
+
+        int threads = 5;
+        ExecutorService pool = Executors.newFixedThreadPool(threads);
+        CountDownLatch ready = new CountDownLatch(threads);
+        CountDownLatch start = new CountDownLatch(1);
+        List<Future<Long>> futures = new ArrayList<>();
+
+        for (int i = 0; i < threads; i++) {
+            futures.add(pool.submit(() -> {
+                ready.countDown();
+                start.await();
+                MvcResult res = mockMvc.perform(post("/api/orders")
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(json(req)))
+                        .andExpect(status().isCreated())
+                        .andReturn();
+                return objectMapper.readTree(res.getResponse().getContentAsString())
+                        .get("id").asLong();
+            }));
+        }
+
+        ready.await();
+        start.countDown();
+
+        Set<Long> ids = new HashSet<>();
+        for (Future<Long> f : futures) {
+            ids.add(f.get());
+        }
+        pool.shutdown();
+
+        assertEquals(1, ids.size());
+    }
+
+    @Test
+    @DisplayName("Stress test: 20 concurrent cancel vs advance races maintain state invariant")
+    void stressTestConcurrentCancelAndAdvance() throws Exception {
+        int iterations = 20;
+        ExecutorService pool = Executors.newFixedThreadPool(2);
+
+        for (int i = 0; i < iterations; i++) {
+            MvcResult created = mockMvc.perform(post("/api/orders")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(json(simpleOrder())))
+                    .andExpect(status().isCreated())
+                    .andReturn();
+            Long orderId = objectMapper.readTree(created.getResponse().getContentAsString())
+                    .get("id").asLong();
+
+            CountDownLatch ready = new CountDownLatch(2);
+            CountDownLatch start = new CountDownLatch(1);
+
+            Future<Integer> cancelStatus = pool.submit(() -> {
+                ready.countDown();
+                start.await();
+                return mockMvc.perform(delete("/api/orders/" + orderId))
+                        .andReturn().getResponse().getStatus();
+            });
+
+            Future<Integer> advanceStatus = pool.submit(() -> {
+                ready.countDown();
+                start.await();
+                return mockMvc.perform(patch("/api/admin/orders/" + orderId + "/advance"))
+                        .andReturn().getResponse().getStatus();
+            });
+
+            ready.await();
+            start.countDown();
+
+            int s1 = cancelStatus.get();
+            int s2 = advanceStatus.get();
+            boolean cancelWon = (s1 == 204 && s2 == 409);
+            boolean advanceWon = (s1 == 409 && s2 == 200);
+            assertTrue(cancelWon || advanceWon,
+                    "Iteration " + i + ": expected one winner and one 409, got cancel=" + s1 + ", advance=" + s2);
+        }
+        pool.shutdown();
     }
 
     private void assertEquals(Object expected, Object actual) {

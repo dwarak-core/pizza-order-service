@@ -110,10 +110,15 @@ function renderOrderItems() {
 }
 
 // === Promo ===
-function applyPromo() {
+async function applyPromo() {
     const input = document.getElementById('promo-input');
     promoCode = input.value.trim() || null;
-    refreshPricing();
+    const p = await refreshPricing();
+    if (p && p.promoError) {
+        toast(p.promoError, 'error');
+    } else if (p && p.appliedPromoCode) {
+        toast(`Promo ${p.appliedPromoCode} applied`, 'success');
+    }
 }
 
 // === Tip ===
@@ -167,12 +172,22 @@ async function refreshPricing() {
             document.getElementById('p-discount').textContent = '-' + fmt(p.discount);
         } else { discountRow.style.display = 'none'; }
 
+        const promoErrEl = document.getElementById('promo-error');
+        if (p.promoError) {
+            promoErrEl.textContent = p.promoError;
+            promoErrEl.style.display = '';
+        } else {
+            promoErrEl.textContent = '';
+            promoErrEl.style.display = 'none';
+        }
+
         const tipRow = document.getElementById('tip-row');
         if (p.tip > 0) {
             tipRow.style.display = '';
             document.getElementById('p-tip').textContent = fmt(p.tip);
         } else { tipRow.style.display = 'none'; }
 
+        return p;
     } catch (e) { toast('Failed to calculate pricing', 'error'); }
 }
 
@@ -253,6 +268,8 @@ function startNewOrder() {
     tipMode = null;
     tipValue = null;
     document.getElementById('promo-input').value = '';
+    document.getElementById('promo-error').textContent = '';
+    document.getElementById('promo-error').style.display = 'none';
     document.getElementById('tip-mode').value = '';
     document.getElementById('tip-value').value = '0';
     document.getElementById('tip-value-group').style.display = 'none';

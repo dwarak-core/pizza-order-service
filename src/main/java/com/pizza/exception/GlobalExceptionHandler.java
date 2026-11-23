@@ -25,6 +25,12 @@ public class GlobalExceptionHandler {
                 .body(new ErrorResponse(409, "Conflict", ex.getMessage()));
     }
 
+    @ExceptionHandler(IdempotencyConflictException.class)
+    public ResponseEntity<ErrorResponse> handleIdempotencyConflict(IdempotencyConflictException ex) {
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(new ErrorResponse(409, "Conflict", ex.getMessage()));
+    }
+
     @ExceptionHandler(InvalidPromoCodeException.class)
     public ResponseEntity<ErrorResponse> handleInvalidPromoCode(InvalidPromoCodeException ex) {
         return ResponseEntity.status(HttpStatus.BAD_REQUEST)

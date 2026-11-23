@@ -29,6 +29,8 @@ public class PizzaOrder {
     @Column(unique = true)
     private String idempotencyKey;
 
+    private String idempotencyHash;
+
     @Column(nullable = false, updatable = false)
     private LocalDateTime createdAt;
 
@@ -56,6 +58,7 @@ public class PizzaOrder {
     public TipMode getTipMode() { return tipMode; }
     public BigDecimal getTipValue() { return tipValue; }
     public String getIdempotencyKey() { return idempotencyKey; }
+    public String getIdempotencyHash() { return idempotencyHash; }
     public LocalDateTime getCreatedAt() { return createdAt; }
     public LocalDateTime getUpdatedAt() { return updatedAt; }
     public Long getVersion() { return version; }
@@ -71,6 +74,7 @@ public class PizzaOrder {
     public void setPromoCode(String promoCode) { this.promoCode = promoCode; }
     public void setTipMode(TipMode tipMode) { this.tipMode = tipMode; }
     public void setTipValue(BigDecimal tipValue) { this.tipValue = tipValue; }
+    public void setIdempotencyHash(String idempotencyHash) { this.idempotencyHash = idempotencyHash; }
 
     // --- Line item management ---
 
