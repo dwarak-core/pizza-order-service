@@ -1,0 +1,15 @@
+spring:
+  datasource:
+    url: jdbc:sqlite:test-pizza-orders.db
+    driver-class-name: org.sqlite.JDBC
+    hikari:
+      maximum-pool-size: 1
+  jpa:
+    database-platform: org.hibernate.community.dialect.SQLiteDialect
+    hibernate:
+      ddl-auto: create-drop
+    show-sql: false
+    open-in-view: false
+
+server:
+  port: 0
