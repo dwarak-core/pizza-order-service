@@ -50,6 +50,12 @@ public class OrderController {
         return orderService.getOrderStatus(id);
     }
 
+    /** Written description of the order including quantity, size, and toppings per line item. */
+    @GetMapping(value = "/{id}/description", produces = "text/plain")
+    public String getOrderDescription(@PathVariable Long id) {
+        return orderService.getOrderDescription(id);
+    }
+
     /** Stateless pricing preview — does not create an order. */
     @PostMapping("/calculate")
     public PricingResponse calculatePricing(@Valid @RequestBody CreateOrderRequest request) {

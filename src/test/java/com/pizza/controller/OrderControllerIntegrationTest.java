@@ -504,6 +504,65 @@ class OrderControllerIntegrationTest {
         pool.shutdown();
     }
 
+    @Test
+    @DisplayName("GET /api/orders/{id}/description returns formatted order text")
+    void getOrderDescription() throws Exception {
+        CreateOrderRequest req = new CreateOrderRequest(
+                UUID.randomUUID().toString(),
+                List.of(new LineItemRequest(getLargeId(), 2, Set.of(getPepperoniId(), getBaconId()))),
+                "ILOVEPIZZA", com.pizza.model.TipMode.DOLLAR, new BigDecimal("3.00")
+        );
+
+        MvcResult created = mockMvc.perform(post("/api/orders")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(json(req)))
+                .andExpect(status().isCreated())
+                .andReturn();
+        Long orderId = objectMapper.readTree(created.getResponse().getContentAsString())
+                .get("id").asLong();
+
+        mockMvc.perform(get("/api/orders/" + orderId + "/description"))
+                .andExpect(status().isOk())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.TEXT_PLAIN))
+                .andExpect(content().string(allOf(
+                        containsString("2x Large Pizza"),
+                        containsString("Bacon"),
+                        containsString("Pepperoni"),
+                        containsString("Promo (ILOVEPIZZA):"),
+                        containsString("Total:")
+                )));
+    }
+
+    @Test
+    @DisplayName("Negative tip value returns 400 Bad Request")
+    void negativeTipRejected() throws Exception {
+        CreateOrderRequest req = new CreateOrderRequest(
+                UUID.randomUUID().toString(),
+                List.of(new LineItemRequest(getLargeId(), 1, Set.of())),
+                null, com.pizza.model.TipMode.DOLLAR, new BigDecimal("-5.00")
+        );
+
+        mockMvc.perform(post("/api/orders")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(json(req)))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @DisplayName("Tip with more than 2 decimal places returns 400 Bad Request")
+    void tipMoreThanTwoDecimalsRejected() throws Exception {
+        CreateOrderRequest req = new CreateOrderRequest(
+                UUID.randomUUID().toString(),
+                List.of(new LineItemRequest(getLargeId(), 1, Set.of())),
+                null, com.pizza.model.TipMode.DOLLAR, new BigDecimal("1.234")
+        );
+
+        mockMvc.perform(post("/api/orders")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(json(req)))
+                .andExpect(status().isBadRequest());
+    }
+
     private void assertEquals(Object expected, Object actual) {
         org.junit.jupiter.api.Assertions.assertEquals(expected, actual);
     }

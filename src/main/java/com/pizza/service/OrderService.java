@@ -106,6 +106,43 @@ public class OrderService {
         return new OrderStatusResponse(order.getId(), order.getStatus().name());
     }
 
+    /** Produces a written description of the order including quantity, size, toppings, and totals. */
+    @Transactional(readOnly = true)
+    public String getOrderDescription(Long orderId) {
+        PizzaOrder order = findOrThrow(orderId);
+        PricingResult pricing = pricingService.calculatePricing(
+                order.getLineItems(), order.getPromoCode(),
+                order.getTipMode(), order.getTipValue());
+
+        StringBuilder sb = new StringBuilder();
+        sb.append("Order #").append(order.getId())
+                .append(" (").append(order.getStatus().name().replace('_', ' ')).append(")\n");
+
+        for (LineItem item : order.getLineItems()) {
+            String toppings = item.getToppings().isEmpty()
+                    ? "Plain"
+                    : item.getToppings().stream()
+                            .map(Topping::getName)
+                            .sorted()
+                            .collect(Collectors.joining(", "));
+            sb.append("- ").append(item.getQuantity()).append("x ")
+                    .append(item.getSize().getName()).append(" Pizza — ")
+                    .append(toppings).append("\n");
+        }
+
+        sb.append("Subtotal: $").append(pricing.subtotal()).append("\n");
+        if (pricing.discount().compareTo(BigDecimal.ZERO) > 0) {
+            sb.append("Promo (").append(pricing.appliedPromoCode()).append("): -$")
+                    .append(pricing.discount()).append("\n");
+        }
+        sb.append("Tax: $").append(pricing.tax()).append("\n");
+        if (pricing.tip().compareTo(BigDecimal.ZERO) > 0) {
+            sb.append("Tip: $").append(pricing.tip()).append("\n");
+        }
+        sb.append("Total: $").append(pricing.total());
+        return sb.toString();
+    }
+
     @Transactional
     public OrderStatusResponse advanceOrderStatus(Long orderId) {
         PizzaOrder order = findOrThrow(orderId);

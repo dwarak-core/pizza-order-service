@@ -81,7 +81,9 @@
 
                     <div class="actions">
                         <button id="submit-btn" class="btn btn-primary">Submit Order</button>
+                        <button id="view-desc-btn" class="btn btn-sm">View Order Description</button>
                     </div>
+                    <pre id="draft-description" class="description-box" style="display:none"></pre>
                 </div>
             </section>
 
@@ -92,9 +94,12 @@
                 <p>Status: <span id="display-status" class="badge"></span></p>
                 <div class="actions">
                     <button id="refresh-status-btn" class="btn btn-sm">Refresh Status</button>
+                    <button id="edit-order-btn" class="btn btn-sm">Edit Order</button>
+                    <button id="view-submitted-desc-btn" class="btn btn-sm">View Order Description</button>
                     <button id="cancel-order-btn" class="btn btn-sm btn-danger">Cancel Order</button>
                     <button id="new-order-btn" class="btn btn-primary">New Order</button>
                 </div>
+                <pre id="submitted-description" class="description-box" style="display:none"></pre>
             </section>
         </main>
 

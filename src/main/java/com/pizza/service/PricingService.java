@@ -117,7 +117,7 @@ public class PricingService {
             return BigDecimal.ZERO.setScale(SCALE);
         }
         if (tipValue.compareTo(BigDecimal.ZERO) < 0) {
-            return BigDecimal.ZERO.setScale(SCALE);
+            throw new IllegalArgumentException("Tip value must not be negative");
         }
 
         return switch (tipMode) {

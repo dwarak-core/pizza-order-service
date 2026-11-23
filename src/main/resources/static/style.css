@@ -43,6 +43,10 @@ select { cursor: pointer; }
 
 .muted { color: #999; font-size: .85rem; font-style: italic; }
 .field-error { color: #e74c3c; font-size: .8rem; margin-top: .25rem; }
+.item-controls { display: flex; align-items: center; gap: .35rem; }
+.qty-btn { width: 24px; height: 24px; border: 1px solid #ccc; border-radius: 4px; background: #fff; cursor: pointer; font-size: .85rem; }
+.qty-btn:hover { background: #eee; }
+.description-box { margin-top: .75rem; padding: .75rem; background: #f8f9fa; border: 1px solid #e0e0e0; border-radius: 4px; font-family: ui-monospace, monospace; font-size: .82rem; white-space: pre-wrap; }
 
 /* --- Pricing summary --- */
 #pricing-summary { margin-top: .75rem; }

@@ -289,6 +289,14 @@ class PricingServiceTest {
 
             assertEquals(bd("0.00"), r.tip());
         }
+
+        @Test
+        @DisplayName("Negative tip throws IllegalArgumentException")
+        void negativeTipRejected() {
+            LineItem item = new LineItem(large, 1);
+            assertThrows(IllegalArgumentException.class,
+                    () -> price(List.of(item), null, TipMode.DOLLAR, bd("-1.00")));
+        }
     }
 
     // --- Rounding ---
