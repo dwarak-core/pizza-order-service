@@ -1,0 +1,8 @@
+.git
+.gradle
+build
+*.db
+.idea
+*.iml
+.vscode
+node_modules

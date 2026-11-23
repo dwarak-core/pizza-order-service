@@ -1,0 +1,10 @@
+services:
+  pizza-service:
+    build: .
+    ports:
+      - "8080:8080"
+    volumes:
+      - pizza-data:/app/data
+
+volumes:
+  pizza-data:
